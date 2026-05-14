@@ -1,2 +1,2 @@
 # AVION
-[CVPR 2025] Official implementation of AVION
+[CVPR 2026] Official implementation of AVION
