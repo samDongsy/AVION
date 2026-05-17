@@ -1,0 +1,35 @@
+# Base-to-novel generalisation on AID (16-shot on base classes; eval on both).
+protocol: base_to_novel
+seed: 1
+eval_split: base      # set to "novel" at eval time
+
+data_root: data/AID
+offline_cache: data/cache/aid_teacher.pt   # built once with the base classes only
+output_dir: runs/avion_aid_b2n
+
+epochs: 50            # base-to-novel trains for 50 epochs (Sec. 4.1)
+batch_size: 4
+lr: 5.0e-4
+weight_decay: 0.0
+
+loss_weights:
+  lambda_img: 0.5
+  lambda_text: 0.5
+  lambda_logit: 1.0
+  temperature: 2.0
+  warmup_frac: 0.30
+
+student:
+  backbone: ViT-B-32
+  pretrained: openai
+  pretrained_path: null
+  n_vision_prompts: 8
+  n_text_prompts: 4
+  vision_prompt_depth: 12
+  text_prompt_depth: 12
+
+teacher:
+  backbone: ViT-H-14
+  pretrained: laion2b_s32b_b79k
+  pretrained_path: null
+  device: cuda

@@ -1,0 +1,35 @@
+# Few-shot classification on AID with the paper defaults.
+protocol: few_shot
+seed: 1
+
+data_root: data/AID
+offline_cache: data/cache/aid_teacher.pt
+output_dir: runs/avion_aid_few_shot
+
+k_shot: 16            # one of {1,2,4,8,16}
+epochs: 100           # few-shot trains for 100 epochs (Sec. 4.1)
+batch_size: 4
+lr: 5.0e-4
+weight_decay: 0.0
+
+loss_weights:
+  lambda_img: 0.5
+  lambda_text: 0.5
+  lambda_logit: 1.0
+  temperature: 2.0
+  warmup_frac: 0.30
+
+student:
+  backbone: ViT-B-32
+  pretrained: openai      # swap with a GeoRSCLIP ckpt path via pretrained_path
+  pretrained_path: null
+  n_vision_prompts: 8
+  n_text_prompts: 4
+  vision_prompt_depth: 12
+  text_prompt_depth: 12
+
+teacher:
+  backbone: ViT-H-14
+  pretrained: laion2b_s32b_b79k
+  pretrained_path: null   # path to GeoRSCLIP ViT-H/14 weights
+  device: cuda

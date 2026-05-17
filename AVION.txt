@@ -1,0 +1,1601 @@
+
+===== PAGE 1 =====
+A VION: Aerial Vision–Language Instruction from
+Offline Teacher to Prompt-Tuned Network
+Yu Hu1* Jianyang Gu2* Hao Liu1 Yue Cao1 Jozsef Hamari3 Zheng Liu1† Mohsen Zardadi3†
+1The University of British Columbia, Okanagan, Kelowna, BC, Canada
+2The Ohio State University, Columbus, OH, USA
+3TerraSense Analytics, Kelowna, BC, Canada
+yu.hu@ubc.ca, gu.1220@osu.edu, hao.liu@ubc.ca, yue.cao@ubc.ca
+{jozsef.hamari, mohsen.zardadi}@terrasense.ca, zheng.liu@ubc.ca
+Abstract
+Adapting vision-language models to remote sensing imagery
+remains challenging due to two key factors: limited semantic
+coverage in textual representations and insufficient adapt-
+ability of visual features. These issues are particularly sig-
+nificant in aerial scenes, which involve various visual ap-
+pearances and fine-grained object distinctions. We propose
+AVION, a knowledge distillation framework tailored for re-
+mote sensing adaptation of vision-language models. The
+teacher module constructs semantically rich textual pro-
+totypes by collecting descriptions from a large language
+model and verifying validity using remote sensing image
+features. The student module integrates lightweight and
+learnable prompts into both vision and language encoders,
+guided by the teacher to align embeddings and their cross-
+modal relationships. Once trained, the student operates
+independently during inference. Experiments on six optical
+remote sensing benchmarks show that AVION improves few-
+shot classification and base-class accuracy without degrad-
+ing generalization to novel categories. It also enhances
+mean recall for cross-modal retrieval, with minimal addi-
+tional trainable parameters. Code is publicly available at
+https://github.com/yuhu990424/AVION.
+1. Introduction
+Domain-specific vision–language models (VLMs) adapt rich
+knowledge of general-purpose foundation models to specific
+applications [2, 15, 35]. For example, RemoteCLIP [25] and
+GeoRSCLIP [41] have achieved state-of-the-art performance
+in remote sensing (RS) after extensive training. However,
+it remains a significant challenge to efficiently adapt these
+large-scale foundation models to new scenarios. Fully fine-
+*Both authors contributed equally to this research.
+†Corresponding authors.
+Figure 1.The t-SNE visualization of visual embeddings from
+different datasets.The same class demonstrates large variations
+across datasets. However, only class names are provided in the
+datasets, which limits multimodal alignment.
+tuning the entire backbone is an ideal option to boost the
+performance on new tasks, but it is computationally expen-
+sive and slow. This approach is often infeasible in real-world
+scenarios that demand rapid deployment while having only
+scarce labels and limited computational resources [12, 40].
+Parameter-efficient fine-tuning (PEFT) emerges as a
+lightweight adaptation solution [ 20, 43]. These methods
+only update a small set of parameters, leaving the back-
+bone of foundation models frozen. While efficient, existing
+PEFT methods remain sub-optimal for RS. As illustrated
+in Fig. 1, the same category can have disparate visual ap-
+pearances across different datasets. However, the images
+are only paired with the class name, which cannot effec-
+tively capture such visual variances. PEFT methods like
+CoOp [43] learn new tasks from simple templates (e.g., a
+1
+arXiv:2603.12659v1  [cs.CV]  13 Mar 2026
+===== PAGE 2 =====
+photo of [CLASS] ). As a result, the text encoder can-
+not adequately describe the diverse appearance patterns in
+RS data. We denote this limitation assemantic poverty. Such
+a disconnection between labels and semantics also makes
+generalization to novel classes challenging.
+Moreover, many PEFT methods primarily update the text
+encoder while freezing the visual encoder. We argue that
+this design obscures models from capturing scale variation
+(e.g., large spatial context and subtle textures) and hetero-
+geneity across sources in RS imagery. We refer to this limi-
+tation asvisual rigidity. Although PEFT can also act on the
+vision side through visual prompting [19] and lightweight
+adapters [13], they still struggle to capture RS-specific visual
+features without proper guidance from the textual side.
+To this end, we introduce Aerial Vision–Language In-
+structiON (A VION), a knowledge distillation framework
+that addresses the above issues. A frozen large teacher model
+is employed to distill knowledge into a lightweight student
+model that is later used for inference. To tackle thesemantic
+poverty, we use a large language model (LLM) to generate
+semantically rich descriptions for each class. The teacher
+model then aggregates these descriptions into a robust textual
+prototype based on its similarity with the visual embeddings
+of the corresponding class. This prototype contains much
+richer information compared with the class name alone. For
+visual rigidity, we inject learnable prompts to the visual side
+like VPT [19]. These prompts give the visual encoder flexi-
+bility to handle visual variations (e.g., oblique views) in the
+RS scenarios.
+Then, we apply distillation on the visual embeddings, tex-
+tual embeddings, and their similarity logits simultaneously.
+This tri-aspect distillation helps the student acquire the vi-
+sual and textual understandings, as well as the multimodal
+alignment structure constructed by the teacher model. The
+learnable prompts for both vision and text encoders allow the
+student model to accumulate rich knowledge on diverse RS
+imagery, guided by robust textual prototypes. This flexibility
+maintains the generalization to unseen data. As shown in
+Tab. 2, A VION is the only method among state-of-the-art
+approaches that yields higher base-to-novel accuracy than
+the GeoRSCLIP baseline.
+Our contributions are summarized as follows:
+• We identify and analyze two critical limitations of previ-
+ous PEFT methods for remote sensing imagery: semantic
+poverty and visual rigidity.
+• We propose A VION, a knowledge distillation framework
+that addresses both limitations with semantically rich tex-
+tual prototypes and multimodal prompt tuning for both
+visual and text encoders.
+• With a tri-aspect alignment, A VION consistently surpasses
+other state-of-the-art PEFT methods in few-shot classifi-
+cation, base-to-novel generalization, and frozen-gallery
+retrieval settings.
+2. Related Work
+2.1. Vision-Language Models
+VLMs align images and text in a shared embedding space
+and deliver strong zero-shot classification and cross-modal
+retrieval performances. Contrastive Language-Image Pre-
+training (CLIP) models train an image and a text encoder
+in a contrastive fashion [17, 27]. Subsequent advances have
+refined objectives [ 30, 39], introduced fine-grained inter-
+actions [34], or explored efficient transfer recipes [ 8, 38].
+Other architectures have explored generative/fusion model-
+ing [22, 36] or incorporating LLMs via lightweight bridges
+(e.g., BLIP-2 [23]).
+2.2. Parameter-Efficient Adaptation of VLMs
+The heavy foundation models motivate PEFT methods.
+Among these, prompt learning has emerged as a promi-
+nent approach. Text-side prompting (e.g., CoOp [ 43], Co-
+CoOp [42]) optimizes learnable context tokens, while vision-
+side prompting (VPT [ 19]) inserts prompts into ViT lay-
+ers. Multi-modal prompting (MaPLe [20]) introduces paired
+prompts for both encoders. Beyond prompting, non-prompt
+adapters (e.g., CLIP-Adapter [ 12], Tip-Adapter [ 40]) at-
+tach lightweight heads or training-free caches. MMRL
+injects a learnable modality-agnostic representation space
+into higher layers to balance specialization and generaliza-
+tion [13]. PromptKD uses unlabeled images for logit-based
+distillation from a CLIP teacher to learnable prompts [24].
+Prompt-CAM uses PEFT to reveal interpretable traits [ 9].
+While efficient, these PEFT methods are sub-optimal in align-
+ing diverse visual appearances with their class names in the
+RS scenario. A VION tackles this challenge via introducing
+semantically rich textual prototypes and prompt tuning for
+both vision and text encoders.
+2.3. VLM Application in Remote Sensing
+Remote sensing (RS) images present a significant visual
+domain gap compared to general-purpose web data. Un-
+like ground-level photos, RS images are captured from
+top-down perspectives, with significant variations in object
+scale and resolution. The progress of the VLM applica-
+tion has followed two fronts. The first front builds RS-
+specific foundation models. Works like RemoteCLIP [25],
+RS5M/GeoRSCLIP [41], and LRSCLIP [6] build large-scale
+RS datasets to train domain-specific models. Others align im-
+ages directly with geographic coordinates (e.g., GeoCLIP [3],
+SatCLIP [ 21]). The second front focuses on parameter-
+efficient RS adaptation. For classification, APPLeNet [28]
+generates image-conditioned visual prompt tokens by fusing
+multi-scale content features with domain style information.
+MVP [45] integrates visual prompting into a meta-learning
+framework. RotCLIP [29] augments CLIP with a lightweight
+Rot-Adapter and dual textual prompts. RSPrompter [4] and
+2
+===== PAGE 3 =====
+Figure 2.Overview of A VION. Upper-left (Training Student).Learnable prompt tokens are injected into the text and vision encoders. The
+student outputs embeddings: tS
+k (student text embedding for class k) and vS
+i (visual embedding for image i).Bottom-left (Offline Teacher).
+LLM-based Domain Promptinggenerates multiple class-aware descriptions, which are encoded intot T
+k,j.Selective Prototype Aggregation
+verifies these candidates using teacher visual embeddings vT
+i and aggregates them into an RS-aware text prototype tT∗
+k .Right (Training
+Objectives).Tri-aspect alignment: (i)textual alignment Ltext maximizes the cosine similarity between tS
+k and tT∗
+k ; (ii)visual alignment
+Limg aligns vS
+i with vT
+i ; (iii)similarity logit alignment Llogit matches teacher logits sT
+i,k = (vT
+i )⊤tT∗
+k and student logits sS
+i,k = (vS
+i )⊤tS
+k
+via temperature-scaled KL. A standard task lossL task (cross-entropy) is applied on the student.
+RSRefSeg [5] learn prompts for segmentation. PeftCD [11]
+plugs LoRA and Adapter modules into Siamese backbones
+for change detection. Compared with other explorations,
+A VION focuses on the intrinsic visual variation of RS im-
+agery. The distillation improves adaptation results under
+realistic settings while retaining efficiency.
+3. Methodology
+Compared with general web images, remote sensing (RS)
+imagery poses unique challenges [10, 16]. First, RS images
+present a large gap from general images, which stems from
+the top-down perspective. Second, within RS domains, the
+same semantic category can have drastically different visual
+appearances due to the variations of regions, seasons, sensor
+types, and resolutions. These challenges make existing PEFT
+methods inadequate for adapting foundation models to new
+scenarios. In this work, we propose an A VION distillation
+framework for more robust adaptation performance without
+sacrificing efficiency. An overview of the proposed A VION
+framework is illustrated in Fig. 2.
+3.1. Preliminary
+Let X={(x i, yi)}N
+i=1 be the training set, where the label
+yi ∈ Y={1, . . . , C} . We employ a large teacher model
+in the training process to provide distillation supervision.
+Learnable deep prompts are injected into a student model
+whose backbone parameters are frozen [18]. We denote the
+visual and textual embeddings encoded by the teacher model
+as vT and tT , respectively. Similarly, the student’s visual
+and textual embeddings are denoted as vS and tS. Logit
+si,k represents the similarity between visual embedding vi
+and textual embedding tk. We present a summary of all the
+symbols and hyperparameter settings in Appendix B.
+As discussed, adapting VLMs to RS is challenged by two
+critical limitations: (1)semantic poverty, as simple class
+names fail to capture fine-grained visual distinctions; (2)vi-
+sual rigidity, as the frozen visual encoder struggles with RS-
+specific features. There is a necessity for a framework that
+enriches textual supervision while enhancing visual adapt-
+ability to mitigate the gap of RS-tailored adaptation.
+Therefore, we propose to design a distillation framework
+that efficiently adapts RS foundation models to new appli-
+cation scenarios. Specifically, we propose to enhance the
+textual prototype to incorporate richer semantic information
+as distillation supervision. Moreover, the proposed A VION
+framework aligns both embeddings and similarity logits dur-
+ing distillation.
+3.2. Textual Prototype Enhancement
+The teacher model encodes images and text labels as distil-
+lation supervisions for the student model. Compared with
+the visual embeddings conditioned on different images, the
+adopted RS datasets often only provide the class name with-
+out detailed descriptions. Therefore, the textual embeddings
+3
+===== PAGE 4 =====
+Figure 3.LLM-based Domain Prompting.Given a class k, an
+RS-aware query asks the LLM to produce aerial-view descriptions.
+RS-Flag is used to examine whether the description contains RS-
+related tokens.
+can be regarded as class-specific prototypes. The correspond-
+ing visual embeddings are optimized toward the textual pro-
+totype during distillation. It also indicates that for a dataset
+with C classes, it will also have C different textual proto-
+types. As aforementioned, the class names alone cannot pro-
+vide sufficient information for the intrinsic visual variations
+across different RS scenarios. Thus, we propose incorpo-
+rating rich knowledge of large language models (LLMs) to
+generate descriptions for RS classes.
+LLM-based domain prompting.Given a class k∈ Y , we
+prompt LLM to generate the corresponding descriptions in
+the context of RS. As shown in Fig. 3, the generated descrip-
+tions largely improve the semantic richness of the textual
+supervision. The detailed prompt and concrete examples of
+these generated candidates are presented in Appendix C.
+While presenting rich semantic information, LLMs may
+hallucinate non-visual or non-RS-related descriptions. The
+textual information might not be grounded in the images as
+well. Therefore, it is critical to verify the validity of these
+descriptions based on images in each dataset. We attach
+an RS-Flag to each description based on the following
+rules: the description should contain RS-related words and
+exclude RS-negative words; the description should be within
+a proper length; the description should include class-specific
+cues. Details ofRS-Flagare in Appendix D.
+Selective prototype aggregation.To verify the LLM
+candidates, we first cache the teacher visual embeddings
+vT
+k,i of classkand obtain the visual prototype bvT
+k by:
+bvT
+k = 1
+|Bk|
+X
+i∈Bk
+vT
+k,i, (1)
+whereB k is the sample set of the classk.
+LLM candidates may include ground-view phrases or off-
+topic wording. As shown in Fig. 4, visual prototypes are
+used toscorethese candidates. We calculate the similarity
+Figure 4.Selective Prototype Aggregation.For each class k,
+teacher image embeddings {vT
+k,i}i∈Bk are averaged to form the
+visual prototype bvT
+k . Each LLM-generated description is encoded
+to a teacher text embedding tk,j and scored by cosine similarity
+sk,j = (bvT
+k )⊤tT
+k,j. A median/MAD threshold ±ζs removes out-
+lier candidates. The remaining embeddings are combined with
+softmax-normalized weights (over kept j) to obtain the class tex-
+tual prototypet T∗
+k .
+between the textual embedding tT
+k,j of each candidate de-
+scription for class k and the corresponding visual prototype:
+sk,j = (bvT
+k )⊤tT
+k,j . (2)
+Next, we remove outlying or generic candidates using a
+median/MAD-based robust z-score (closed form in Ap-
+pendix D, Eq. 9). We denote the kept index set by Jk. The
+kept candidates are then aggregated based on the RS-Flag
+acquired from the last step to obtain the final prototype tT∗
+k :
+wk,j ∝exp
+ 
+βsk,j +γRS-Flag k,j
+
+, j∈ J k,(3)
+tT∗
+k = norm
+X
+j∈Jk
+wk,jP
+j′∈Jk
+wk,j ′
+tk,j
+
+, (4)
+whereRS-Flag k,j ∈ {0,1}.
+This aggregation process is analogous to a parameter-free
+cross-attention mechanism. The class visual prototype (bvT
+k )
+acts as thequery, and the candidate text embeddings ( tT
+k,j)
+serve as bothkeysandvalues. The RS-Flag prior is then
+added as acalibrationto the scores before the softmax-like
+normalization (Eq. 3). Then, the weights wk,j are normal-
+ized over the kept set Jk. In such a way, we obtain the
+textual prototype tT∗
+k for class k generated by the teacher
+model. This prototype contains richer semantic information
+compared with solely the class name, and also corresponds
+to the visual features in the target adaptation scenario.
+3.3. Tri-Aspect Alignment
+After acquiring the visual and textual embeddings of the
+teacher model, as illustrated in Fig. 2, we apply distilla-
+tion training to update the learnable prompts in the student
+model. First, we apply the task supervision Ltask (cross-
+entropy in this classification task) to ensure that the student
+model achieves the desired task performance. Additionally,
+we apply three complementary alignment losses to ensure
+comprehensive knowledge transfer:
+4
+===== PAGE 5 =====
+• Visual alignment ( Limg):We encourage the student’s
+visual embeddingsv S
+i to mimic the teacher’svT
+i :
+Limg = 1
+|B|
+X
+i∈B
+ 
+1−(v S
+i )⊤vT
+i
+
+, (5)
+where B is the current mini-batch. By injecting learnable
+prompts into the vision side, we aim to address thevisual
+rigidityof previous methods. This objective guides the stu-
+dent to “see” RS-specific geometric patterns (e.g., oblique
+views) as the teacher model does.
+• Textual alignment (Ltext):This loss provides the primary
+supervision signal for the student’s learnable text prompts.
+Its effect is to align the student’s text embedding (tS
+k ) with
+the high-quality, visually-verified teacher prototypes (tT∗
+k ):
+Ltext = 1
+C
+CX
+k=1
+ 
+1−(t S
+k )⊤tT∗
+k
+
+. (6)
+By minimizing the cosine distance, the student can pro-
+duce semantic representations that mimic the rich, LLM-
+guided knowledge captured by the teacher, thereby com-
+batingsemantic poverty.
+• Similarity logit alignment (Llogit):This loss aligns the
+student’s predictive output distribution with the teacher’s
+(Eq. 7). In contrast to Ltask, which uses a one-hot vector
+representing only the single ground-truth class, this objec-
+tive provides a more informative supervisory signal. The
+effect is that the student is trained to replicate the teacher’s
+entire probability distributionover all classes:
+Llogit = 1
+|B|
+X
+i∈B
+τ 2 KL
+
+σ(s(T)
+i,· /τ)∥σ(s (S)
+i,· /τ)
+
+. (7)
+This distribution contains rich, implicit information about
+inter-class relationships, capturing subtle similarities that
+are lost in the one-hot target.
+The overall objective is a weighted sum:
+L=L task +λ imgLimg +λ textLtext +λ logitLlogit. (8)
+The teacher is only used during training. We present the com-
+plexity analysis in Appendix F and detailed hyper-parameter
+settings in Appendix B.
+4. Experiments
+4.1. Experimental Setup
+We evaluate A VION on standard RS benchmarks for few-
+shot classification, base-to-novel generalization, and cross-
+modal retrieval.
+Few-shot learning.To assess the performance of A VION un-
+der limited supervision, which is common in remote sensing,
+we evaluate few-shot classification under different settings of
+labeled examples per class (K∈ {1,2,4,8,16} ). To ensure
+a fair comparison, we fix identical per-class samples across
+all runs for each method andK.
+Base-to-novel generalization.Each dataset is split into dis-
+joint base/novel classes. Models are trained on base classes
+with 16-shot supervision and evaluated on both sets. We
+report the harmonic mean (HM) following prompt-learning
+practice [13, 20, 42, 43]. To prevent information leakage
+from novel classes, the teacher builds prototypes only for
+base classes. Please refer to Appendix E for the masking
+mechanism.
+Cross-modal retrieval.To perform cross-modal retrieval,
+we extract image and text representations. These are ℓ2-
+normalized, and we retrieve the most similar samples using
+cosine similarity (the normalized dot product). We report
+retrieval recall at R@1, R@5, and R@10 for both image-
+to-text (I→T) and text-to-image (T→I) directions. We also
+report the mean recall (mR), the average of all six values.
+Datasets.For classification (few-shot and base-to-novel),
+we use AID [ 32], RESISC-45 [ 7], EuroSAT [14], WHU-
+RS19 [ 31], PatternNet [ 44], and UCMerced [ 33], cover-
+ing diverse spatial resolutions, class counts (19–45), and
+scene complexities. For cross-modal retrieval, we use
+RSITMD [37] and RSICD [26].
+Implementation details.Unless noted, the student back-
+bone is GeoRSCLIP(ViT-B/32) [41] and the frozen
+teacher is GeoRSCLIP(ViT-H/14) [41]. All teacher-
+side visual prototypes and textual prototypes generated by
+selective prototype aggregation are prepared offline and used
+only during training. Specifically, we employ the Gemini 2.5
+Flash API for LLM-based domain prompting to generate up
+to 50 class-specific descriptions per class. For training, we
+use AdamW with a learning rate of 5×10−4 and a batch size
+of 4. Few-shot runs train for 100 epochs; base-to-novel and
+retrieval for 50 epochs. For the distillation objective, we set
+the final weights to λimg=0.5, λtext=0.5, and λlogit=1.0,
+using a 30% linear warm-up for the λlogit term to ensure
+stable convergence. The distillation temperature τ is fixed at
+2. All hyperparameters were selected on a validation split of
+the AID dataset and then fixed for all other datasets and tasks.
+We provide a detailed justification for these choices, includ-
+ing sensitivity analysis, in Appendix G. All experiments
+were run on a single NVIDIA L4 GPU (24 GB).
+4.2. Few-shot Evaluation
+We compare A VION with two groups of baselines. (1)
+Zero-shot VLMs: CLIP [ 27], RemoteCLIP [ 25], and
+GeoRSCLIP [41], all evaluated in the zero-shot mode. (2)
+Parameter-efficient fine-tuning (PEFT): (a) prompt-learning
+methods CoOp [ 43], CoCoOp [ 42], MaPLe [ 20], Promp-
+tKD [24], and APPLeNet [ 28]; (b) a representation-token
+based method MMRL [ 13]. To ensure fairness, all PEFT
+5
+===== PAGE 6 =====
+Table 1. Few-shot classification against state-of-the-art methods.
+The table presents the average classification accuracy (%) over 6
+datasets. The best-performing result for each K-shot setting is in
+bold, and the runner-up is underlined.
+Method 1-shot 2-shot 4-shot 8-shot 16-shot
+Zero-shot Methods
+CLIP [27]63.24
+RemoteCLIP [25]72.92
+GeoRSCLIP [41]72.95
+PEFT Methods
+CoOp [43]69.98 78.95 84.52 87.57 90.24
+CoCoOp [42]70.27 80.56 85.74 88.93 91.41
+MMRL [13]70.57 79.47 84.66 87.48 90.45
+MaPLe [20]65.60 76.69 82.48 88.33 90.73
+PromptKD [24]69.91 79.64 85.02 88.27 90.86
+APPLeNet [28]74.27 81.79 86.40 89.20 91.61
+A VION (Ours) 74.27 81.86 88.31 91.85 93.69
+Table 2. Average base-to-novel results (%) across all 6 datasets
+(ViT-B/32 student). We report Base, Novel, and HM.
+Method Base Novel HM
+GeoRSCLIP [41]78.10 79.75 78.81
+CoOp [43]91.17 69.52 78.88
+CoCoOp [42]91.85 70.69 80.06
+MMRL [13]93.75 73.69 82.76
+MaPLe [20]92.87 74.66 82.90
+PromptKD [24]93.67 76.58 84.20
+APPLeNet [28]93.84 75.75 83.84
+A VION (Ours) 95.64 79.94 87.05
+baselines are implemented on the same CLIP-like backbone
+GeoRSCLIP, keeping the image/text encoders frozen while
+training only method-specific lightweight parameters.
+As shown in Tab. 1, A VION matches or exceeds other
+methods across all shot levels. At 1-shot, it ties the top
+method (74.27%), and its performance margin over the
+runner-up progressively widens with more training sam-
+ples, peaking at +2.65 pp at 8-shot. We attribute this high
+data efficiency to learnable visual prompts and semantically
+rich textual prototypes generated by the teacher. The tex-
+tual prototypes are then effectively incorporated via our
+tri-aspect alignment objective, capturing more supervision
+signals. Even if the adopted initialization (GeoRSCLIP)
+already achieves strong zero-shot performance [ 41], with
+RS-specific optimizations in both teacher and student mod-
+els, our method yields even more significant improvements.
+4.3. Base-to-Novel Generalization
+The base-to-novel setting evaluates the adaptation to base
+classes and the generalization to novel classes after fine-
+tuning. As shown in Tab. 2, with a strong initialization
+(GeoRSCLIP), all previous methods achieve higher per-
+formances on base classes. However, the adaptation also
+Figure 5.t-SNE of base-to-novel visual and text embeddings
+on RESISC-45.(a) GeoRSCLIP [ 41] (b)A VION (ours)(c) AP-
+PLeNet [28] (d) MMRL [13]. Gray dots represent the visual embed-
+ding ofbase classes. Coloreddotsrepresent thevisual embedding
+of novel classeswith each color standing for a class. Colored
+crossesrepresent thetext embedding of novel classesfor their class
+names. A, B, C, and D are four classes.
+leads to degraded performance on novel classes. In our
+comparison, A VION is the only method that surpasses
+GeoRSCLIP [41] in novel-class performance. Meanwhile,
+A VION also achieves the best performance on base classes,
+surpassing the runner-up by +1.80pp.
+We present the t-SNE visualization of visual and text em-
+beddings for both base and novel classes in Fig. 5. Gray
+clusters correspond to base classes, while colored clusters
+denote novel classes (each color indicates a different class).
+Colored crosses represent the text embedding of class names
+for the corresponding colored classes. A, B, C, and D are
+four representative classes. We highlight their text embed-
+dings with dashed circles. Overall, A VION shows slightly
+better (e.g., classes A and B) or on-par multimodal align-
+ment on novel classes compared with GeoRSCLIP [41]. It
+corresponds to the quantitative results in Tab. 2. By contrast,
+the other two methods, APPLeNet [ 28] and MMRL [ 13],
+illustrate misalignment between text and visual embeddings.
+APPLeNet freezes the visual encoder and updates only the
+text encoder. While the visual embedding distribution re-
+mains consistent with GeoRSCLIP, the text embeddings on
+these unseen classes shift after tuning. MMRL opens both
+encoders for training, but without semantically rich text pro-
+totypes as guidance, the multimodal gap becomes even larger
+for unseen classes.
+6
+===== PAGE 7 =====
+Table 3. Cross-modal retrieval (R@K, %) on RSITMD [ 37] and RSICD [ 26] (ViT-B/32 student; protocol details in Sec. 4.1).mRis
+the macro-average over {T→I,I→T} × {1,5,10} . ∆ is relative to GeoRSCLIP. Our method (A VION) is lightweight, updating only
+prompts/heads; see Appendix F for a full efficiency analysis.
+Testing
+Dataset
+Training
+Dataset Method
+Image→Text Text→Image mR
+R@1 R@5 R@10 R@1 R@5 R@10
+RSITMD[37]
+RSITMD ML Retrieval [1]19.09 40.26 54.42 17.61 49.73 60.59 41.38
+RET-3 CLIP [27]23.67 50.00 63.27 22.61 55.27 69.87 47.63
+RET-3 + DET-10 + SEG-4 RemoteCLIP [25]27.88 50.66 65.71 22.17 56.46 67.41 49.38
+RSITMD + RSICD GeoRSCLIP-FT [41]32.30 53.32 67.92 25.04 57.88 74.38 51.81
+RSITMD + RSICD A VION (Ours) 33.17 54.46 69.18 26.09 59.22 75.41 52.92
+RSICD[26]
+RSICD ML Retrieval [1]10.70 29.64 41.53 9.14 29.98 44.59 27.43
+RET-3 CLIP [27]17.94 35.94 51.04 13.89 35.15 50.08 33.98
+RET-3 + DET-10 + SEG-4 RemoteCLIP [25]17.02 39.97 51.51 13.73 34.71 48.28 35.26
+RSITMD + RSICD GeoRSCLIP-FT [41]21.13 41.72 55.63 15.59 41.19 57.99 38.87
+RSITMD + RSICD A VION (Ours) 22.01 42.37 56.42 16.24 42.58 59.21 39.80
+∆ vs. GeoRSCLIP-FT (mR)RSITMD:+1.11RSICD:+0.93
+Table 4.Configurations for our incremental ablation study.Each configuration builds upon the previous one and culminates in the full
+system (B7).
+ID Configuration Description ID Configuration Description
+B0 Shallow text-only prompt (CoOp-style),L task only. B4 Replace manual prototypes with LLM-generated ones.
+B1 + Deep prompt tuning. B5 +Selective prototype aggregation(vision-guided).
+B2 + Representation alignment (L img). B6 + Behavioral alignment (L logit) in a single-stage schedule.
+B3 + Semantic alignment (L text) with manual textual prototypes.B7 Final Model: 30% warm-up (Sec. 4.1).
+The teacher textual prototypes in A VION integrate rich
+knowledge from LLMs into the distillation process. Through
+verification with dataset-specific visual prototypes, A VION
+accurately aligns various visual appearances with their cor-
+responding labels and descriptions. The external knowl-
+edge, in addition to class names, facilitates a comprehensive
+understanding of base classes, which further promotes the
+generalization to novel classes.
+4.4. Cross-modal Retrieval
+We evaluate cross-modal retrieval using a deployment-
+oriented protocol. To simulate scenarios where the gallery
+is fixed, gallery embeddings are pre-computed and are not
+re-encoded during adaptation. Concretely, A VION uses a
+lightweight prompt learning approach, which requires up-
+dating only a minimal set of parameters (well below 1% of
+the backbone) and no gallery recomputation. This resource-
+efficient design is detailed in Appendix F.
+As shown in Tab. 3, A VION attains the best mR across
+both directions with lightweight adaptation on RSITMD and
+RSICD. Compared with GeoRSCLIP-FT, which opens all
+the parameters for tuning, A VION improves mR by +1.11 pp
+(RSITMD) and +0.93 pp (RSICD). This indicates the com-
+putational efficiency of our framework. When the trainable
+parameters are fewer, we introduce additional rich knowl-
+edge from LLMs to promote the understanding of these RS
+classes. The results demonstrate that this semantically richer
+supervision and our tri-aspect alignment objective are more
+effective than naive full fine-tuning.
+4.5. Ablation Study
+Incremental ablation analysis.We conduct an incremental
+ablation study to quantify the contribution of each com-
+ponent of A VION. Starting from a minimal prompt-only
+baseline, we enable deep prompt tuning, textual proto-
+type enhancement, and the tri-aspect alignment objective
+(Limg,L text,L logit). Eight configurations (B0–B7) and their
+results are listed in Tab. 4 and Tab. 5, respectively. All runs
+share identical training budgets, datasets, and evaluation pro-
+tocols. To avoid leakage in the base-to-novel protocol, the
+offline teacher is used only during training, and its guidance
+(textual prototypes and distillation targets) is restricted to
+base classes with masked renormalization. More details are
+presented in Appendix E.
+Injecting deep prompts (B1) alone improves the base-
+class accuracy, but also leads to a -16.01 pp degradation on
+novel classes. When gradually adding more training sam-
+ples, the improvement of deep prompts becomes marginal,
+indicating unstable effects.
+Adding visual alignment (B2) acts as an effective reg-
+7
+===== PAGE 8 =====
+Table 5.Main ablation results for classification.We report Base,
+Novel, and Harmonic Mean (HM) accuracy. Metrics are averaged
+over six datasets.
+ID Base Novel HM
+K-shot
+1 2 4 8 16
+B091.17 69.52 78.88 69.98 78.95 84.52 87.57 90.24
+B193.52 53.51 66.71 66.95 84.68 84.61 87.34 91.25
+B289.74 61.15 72.74 70.21 82.99 85.31 89.65 91.51
+B391.21 68.63 78.34 71.98 83.72 85.90 90.43 92.18
+B491.03 74.08 81.67 72.15 84.71 87.43 91.89 92.14
+B591.71 75.87 83.05 72.52 85.06 87.91 92.53 92.65
+B694.82 79.14 86.26 73.7185.34 89.28 92.9593.17
+B795.64 79.94 87.05 74.2781.86 88.31 91.8593.69
+ularizer, partially reversing the generalization degradation
+(HM +6.03 pp). Except for the 2-shot case, B2 outperforms
+B0 across all few-shot configurations. This supports the
+necessity of introducing the visual alignmentL img.
+Introducing our enhanced textual prototypes at this stage
+delivers the largest cumulative HM improvement (+10.31
+pp from B2 to B5). This trajectory is paralleled in the few-
+shot domain, which sees cumulative gains from B2 to B5
+of +2.31 pp (1-shot) and +1.14 pp (16-shot). These results
+are consistent with the hypothesis that high-quality, visually
+grounded semantics are pivotal for both generalization and
+data efficiency.
+Finally, adding similarity logit alignment ( Llogit, B6)
+and an optimized warm-up schedule (B7) yields a further
+HM gain (+4.00 pp from B5 to B7). This final optimization
+pushes HM, 1-shot, and 16-shot to their peak values. Overall,
+B7 provides the best overall performance, particularly in
+generalization (HM) and extreme few-shot scenarios.
+Ablating the teacher text-prototype pipeline.We fix the
+model architecture and training objectives for all settings,
+varying only prototype sources and aggregation in Tab. 6.
+Handcrafted multi-templates (P1) serve as a baseline (79.91
+HM). Switching to domain-constrained LLM candidates
+with simple averaging (P3) already improves this to 81.70
+HM. This highlights the importance of the additional knowl-
+edge introduced by LLMs.Selective prototype aggregation
+(P6) further boosts the score to 83.05 HM. This +1.35 pp
+gain (P6 vs. P3) isolates the benefit of our aggregation over
+a simple mean. The value of itsvisualguidance is also sup-
+ported by P5 outperforming a text-only selector (P4, 82.05
+HM). We also demonstrate the result of selecting a random
+subset from candidates (P5), which results in a score of
+80.31 HM. Notably, random selection performs even worse
+than averaging all unconstrained candidates (P2, 80.85 HM).
+The contrast further supports that P6’s gains stem from its
+vision-guided selection criteria.
+Backbone variants (CLIP family).We compare A VION’s
+performance using three different ViT-B/32 backbones:
+Table 6.Teacher text-prototype ablation (P0–P6).All settings
+use the same objectives, with different prototype sources and ag-
+gregation. HM averaged over the same datasets/seeds.
+ID Prototype Source AggregationRS-FlagHM (%)
+P0 Manual (single template) none –79.52
+P1 Manual (multi-templates) mean –79.91
+P2 LLM (unconstrained) mean no80.85
+P3 LLM (domain-constrained) mean yes81.70
+P4 LLM (domain-constrained) text-only selection yes82.05
+P5 LLM (random subset) mean no80.31
+P6 LLM (domain-constrained)Selective agg.yes83.05
+Figure 6. Few-shot classification accuracy of A VION with different
+CLIP-based backbones in the few-shot setting.
+CLIP, RemoteCLIP, and GeoRSCLIP. The choice of back-
+bone has a clear impact. As seen in Fig. 6, the domain-
+pretrained GeoRSCLIP achieves the highest accuracy across
+all settings, from zero-shot up to 16-shot. RemoteCLIP,
+which is also pre-trained for remote sensing, is the clear
+second-best. The general CLIP backbone performs last in
+all cases. This result aligns with the expectation that back-
+bones already familiar with aerial imagery provide a stronger
+starting point for adaptation. We also observe that, starting
+from 1-shot, the performance for all variants consistently
+improves over the zero-shot initializations.
+5. Conclusion
+We addressed two challenges in adapting vision–language
+models to remote sensing imagery: semantic poverty in text
+representations and visual rigidity in feature adaptation. We
+proposed A VION, a knowledge distillation framework in
+which a frozen teacher constructs semantically rich textual
+prototypes from LLM-generated descriptions and remote
+sensing image features, and a lightweight student learns
+multimodal prompts for both vision and language encoders
+under a tri-aspect alignment objective. This design allows
+the student to better accommodate appearance variations in
+aerial scenes while preserving the alignment structure in-
+duced by the teacher. Experiments on six remote sensing
+benchmarks indicate that A VION can improve few-shot clas-
+sification performance without degrading generalization to
+novel categories.
+8
+===== PAGE 9 =====
+Acknowledgments
+This work was supported by Mitacs through the Mitacs Ac-
+celerate Program and by TerraSense Analytics (Grant No.
+IT42711). It was supported in part by the U.S. National
+Science Foundation (OAC-2118240, HDR Institute: Ima-
+geomics).
+References
+[1] Mohamad M Al Rahhal, Yakoub Bazi, Norah A Alsharif,
+Laila Bashmal, Naif Alajlan, and Farid Melgani. Multilan-
+guage transformer for improved text to remote sensing image
+retrieval.IEEE Journal of Selected Topics in Applied Earth
+Observations and Remote Sensing, 15:9115–9126, 2022. 7
+[2] Muhammad Awais, Muzammal Naseer, Salman Khan,
+Rao Muhammad Anwer, Hisham Cholakkal, Mubarak Shah,
+Ming-Hsuan Yang, and Fahad Shahbaz Khan. Foundation
+models defining a new era in vision: a survey and outlook.
+IEEE Transactions on Pattern Analysis and Machine Intelli-
+gence, 2025. 1
+[3] Vicente Vivanco Cepeda, Gaurav Kumar Nayak, and Mubarak
+Shah. Geoclip: Clip-inspired alignment between locations
+and images for effective worldwide geo-localization. In
+NeurIPS (Workshop/Conference), 2023. 2
+[4] Keyan Chen, Chenyang Liu, Hao Chen, Haotian Zhang,
+Wenyuan Li, Zhengxia Zou, and Zhenwei Shi. Rsprompter:
+Learning to prompt for remote sensing instance segmentation
+based on visual foundation model.IEEE Transactions on
+Geoscience and Remote Sensing, 62:1–17, 2024. 2
+[5] Kyan Chen et al. Rsrefseg: Text-guided referring remote
+sensing image segmentation with foundation models.arXiv
+preprint arXiv:2501.06809, 2025. 3
+[6] Weizhi Chen, Jingbo Chen, Yupeng Deng, and et al. Lrsclip:
+Aligning remote sensing images with longer text (lrs2m
+dataset).arXiv:2503.19311, 2025. 2
+[7] Gong Cheng, Junwei Han, and Xiaoqiang Lu. Remote Sens-
+ing Image Scene Classification: Benchmark and State of the
+Art.Proceedings of the IEEE, 105(10):1865–1883, 2017.
+Introduces NWPU-RESISC45. 5, 2, 4
+[8] Mehdi Cherti, Romain Beaumont, Ross Wightman, and et
+al. Reproducible scaling laws for contrastive language-image
+pre-training. InCVPR, 2023. 2
+[9] Arpita Chowdhury, Dipanjyoti Paul, Zheda Mai, Jianyang
+Gu, Ziheng Zhang, Kazi Sajeed Mehrab, Elizabeth G Campo-
+longo, Daniel Rubenstein, Charles V Stewart, Anuj Karpatne,
+et al. Prompt-cam: Making vision transformers interpretable
+for fine-grained analysis. InProceedings of the Computer Vi-
+sion and Pattern Recognition Conference, pages 4375–4385,
+2025. 2
+[10] Rajeshreddy Datla, Nazil Perveen, et al. Learning scene-
+vectors for remote sensing image scene classification.Neuro-
+computing, 587:127679, 2024. 3
+[11] Sijun Dong, Yuxuan Hu, LiBo Wang, Geng Chen, and Xi-
+aoliang Meng. PeftCD: Leveraging vision foundation mod-
+els with parameter-efficient fine-tuning for remote sensing
+change detection.arXiv preprint arXiv:2509.09572, 2025. 3
+[12] Peng Gao, Shijie Geng, Renrui Zhang, Teli Ma, Rongyao
+Fang, Yongfeng Zhang, Hongsheng Li, and Yu Qiao. Clip-
+adapter: Better vision-language models with feature adapters.
+International Journal of Computer Vision, 132(2):581–595,
+2024. 1, 2
+[13] Yuncheng Guo and Xiaodong Gu. Mmrl: Multi-modal repre-
+sentation learning for vision-language models. InProceedings
+of the Computer Vision and Pattern Recognition Conference,
+pages 25015–25025, 2025. 2, 5, 6, 4
+[14] Patrick Helber, Benjamin Bischke, Andreas Dengel, and
+Damian Borth. EuroSAT: A novel dataset and deep learning
+benchmark for land use and land cover classification.IEEE
+Journal of Selected Topics in Applied Earth Observations and
+Remote Sensing, 12(7):2217–2226, 2019. 5, 2, 4
+[15] Ziyue Huang, Hongxi Yan, Qiqi Zhan, Shuai Yang, Mingming
+Zhang, Chenkai Zhang, YiMing Lei, Zeming Liu, Qingjie
+Liu, and Yunhong Wang. A survey on remote sensing foun-
+dation models: From vision to multimodality.arXiv preprint
+arXiv:2503.22081, 2025. 1
+[16] Chunlei Huo, Keming Chen, Shuaihao Zhang, Zeyu Wang,
+Heyu Yan, Jing Shen, Yuyang Hong, Geqi Qi, Hongmei Fang,
+and Zihan Wang. When remote sensing meets foundation
+model: A survey and beyond.remote sensing, 17(2), 2025. 3
+[17] Chao Jia, Yinfei Yang, Ye Xia, and et al. Scaling up visual
+and vision-language representation learning with noisy text
+supervision. InICML, 2021. 2
+[18] Menglin Jia, Luming Tang, Bor-Chun Chen, Claire Cardie,
+Serge Belongie, Bharath Hariharan, and Ser-Nam Lim. Visual
+prompt tuning, 2022. 3
+[19] Menglin Jia, Luming Tang, Bor-Chun Chen, Claire Cardie,
+Serge Belongie, Bharath Hariharan, and Ser-Nam Lim. Visual
+prompt tuning. InComputer Vision – ECCV 2022, pages 709–
+727. Springer, 2022. 2
+[20] Muhammad Uzair Khattak, Hanoona Rasheed, Muham-
+mad Uzair Maaz, Salman Khan, Fahad Shahbaz Khan, and
+Ming-Hsuan Yang. Maple: Multi-modal prompt learning.
+InProceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), pages 19113–19122,
+2023. 1, 2, 5, 6, 4
+[21] Konstantin Klemmer, Esther Rolf, Caleb Robinson, Lester
+Mackey, and Marc Rußwurm. Satclip: Global, general-
+purpose location embeddings with satellite imagery. InAAAI,
+2025. 2
+[22] Junnan Li, Ramprasaath R. Selvaraju, Akhilesh Gotmare, and
+et al. Align before fuse: Vision and language representation
+learning with momentum distillation. InNeurIPS, 2021. 2
+[23] Junnan Li, Dongxu Li, Silvio Savarese, and Steven C. H.
+Hoi. Blip-2: Bootstrapping language-image pre-training with
+frozen image encoders and large language models. InICML,
+2023. 2
+[24] Zheng Li, Xiang Li, Xinyi Fu, Xin Zhang, Weiqiang Wang,
+Shuo Chen, and Jian Yang. Promptkd: Unsupervised prompt
+distillation for vision-language models. InProceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), 2024. arXiv:2403.02781. 2, 5, 6, 4
+[25] Fan Liu, Delong Chen, Zhangqingyun Guan, and et al. Re-
+moteclip: A vision–language foundation model for remote
+sensing.arXiv:2306.11029, 2023. 1, 2, 5, 6, 7
+9
+===== PAGE 10 =====
+[26] Xiaoqiang Lu, Binqiang Wang, Xiangtao Zheng, and Xuelong
+Li. Exploring models and data for remote sensing image
+caption generation.arXiv:1712.07835, 2017. 5, 7
+[27] Alec Radford, Jong Wook Kim, Chris Hallacy, and et al.
+Learning transferable visual models from natural language
+supervision. InICML, 2021. 2, 5, 6, 7
+[28] Mainak Singha, Ankit Jha, Bhupendra Solanki, Shirsha Bose,
+and Biplab Banerjee. Applenet: Visual attention parameter-
+ized prompt learning for few-shot remote sensing image gen-
+eralization using clip. InProceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition (CVPR)
+Workshops, pages 2024–2034, 2023. 2, 5, 6, 4
+[29] Tiecheng Song, Qi Liu, Anyong Qin, and Yin Liu. Rotclip:
+Tuning clip with visual adapter and textual prompts for ro-
+tation robust remote sensing image classification.Signal
+Processing: Image Communication, page 117407, 2025. 2
+[30] Michael Tschannen, Alexey Gritsenko, Xiao Wang, Muham-
+mad Ferjad Naeem, Ibrahim Alabdulmohsin, Nikhil
+Parthasarathy, Talfan Evans, Lucas Beyer, Ye Xia, Basil
+Mustafa, Olivier H´enaff, Jeremiah Harmsen, Andreas Steiner,
+and Xiaohua Zhai. Siglip 2: Multilingual vision-language
+encoders with improved semantic understanding, localization,
+and dense features, 2025. 2
+[31] Gui-Song Xia, Wen Yang, Julie Delon, Yann Gousseau, Hong
+Sun, and Henri Ma ˆıtre. Structural high-resolution satellite
+image indexing. InISPRS TC VII Symposium-100 Years
+ISPRS, pages 298–303, 2010. 5, 2, 4
+[32] Gui-Song Xia, Jingwen Hu, Fan Hu, Baoguang Shi, Xiang
+Bai, Yanfei Zhong, Liangpei Zhang, and Xiaoqiang Lu. Aid:
+A benchmark data set for performance evaluation of aerial
+scene classification.IEEE Transactions on Geoscience and
+Remote Sensing, 55(7):3965–3981, 2017. 5, 2, 4
+[33] Yi Yang and Shawn Newsam. Bag-of-visual-words and spatial
+extensions for land-use classification. InACM SIGSPATIAL
+GIS, 2010. UC Merced Land Use Dataset. 5, 2, 4
+[34] Lewei Yao, Runhui Huang, Lu Hou, and et al. Filip: Fine-
+grained interactive language-image pre-training. InICLR,
+2022. 2
+[35] Shukang Yin, Chaoyou Fu, Sirui Zhao, Ke Li, Xing Sun,
+Tong Xu, and Enhong Chen. A survey on multimodal large
+language models.National Science Review, 11(12):nwae403,
+2024. 1
+[36] Jiahui Yu, Zirui Wang, Vijay Vasudevan, and et al. Coca:
+Contrastive captioners are image-text foundation models.
+arXiv:2205.01917, 2022. 2
+[37] Yansheng Yuan, Xintao Wang, et al. Exploring a fine-grained
+multiscale method for cross-modal remote sensing image
+retrieval.arXiv preprint arXiv:2204.09868, 2022. Introduces
+RSITMD dataset. 5, 7
+[38] Xiaohua Zhai, Xiao Wang, Basil Mustafa, and et al. Lit: Zero-
+shot transfer with locked-image text tuning. InCVPR, 2022.
+2
+[39] Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and
+Lucas Beyer. Sigmoid loss for language image pre-training.
+arXiv:2303.15343, 2023. 2
+[40] Renrui Zhang, Wei Zhang, Rongyao Fang, Peng Gao, Kun-
+chang Li, Jifeng Dai, Yu Qiao, and Hongsheng Li. Tip-
+adapter: Training-free adaption of clip for few-shot classifi-
+cation. InComputer Vision – ECCV 2022, pages 493–510.
+Springer, 2022. 1, 2
+[41] Zilun Zhang, Tiancheng Zhao, Yulong Guo, and Jianwei Yin.
+Rs5m and georsclip: A large scale vision-language dataset
+and a large vision-language model for remote sensing.IEEE
+Transactions on Geoscience and Remote Sensing, 2024. 1, 2,
+5, 6, 7, 4
+[42] Kaiyang Zhou, Jingkang Yang, Chen Change Loy, and Ziwei
+Liu. Conditional prompt learning for vision-language models.
+InProceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), pages 16816–16825,
+2022. 2, 5, 6, 4
+[43] Kaiyang Zhou, Jingkang Yang, Chen Change Loy, and Ziwei
+Liu. Learning to prompt for vision-language models.Inter-
+national Journal of Computer Vision, 130:2337–2348, 2022.
+1, 2, 5, 6, 4
+[44] Weixun Zhou, Shawn Newsam, Congmin Li, and Zhenfeng
+Shao. Patternnet: A benchmark dataset for performance
+evaluation of remote sensing image retrieval.ISPRS journal
+of photogrammetry and remote sensing, 145:197–209, 2018.
+5, 2, 4
+[45] Junjie Zhu, Yiying Li, Ke Yang, Naiyang Guan, Zunlin Fan,
+Chunping Qiu, and Xiaodong Yi. Mvp: Meta visual prompt
+tuning for few-shot remote sensing image scene classification.
+IEEE Transactions on Geoscience and Remote Sensing, 62:
+1–13, 2024. 2
+10
+===== PAGE 11 =====
+A VION: Aerial Vision–Language Instruction from
+Offline Teacher to Prompt-Tuned Network
+Supplementary Material
+This appendix is organized as follows:
+• Section A reports additional quantitative results, including
+few-shot classification and base-to-novel generalization
+across six remote sensing benchmarks.
+• Section B summarizes the symbols and the default or
+searched hyperparameter ranges used in A VION.
+• Section C presents examples of ourLLM-based domain
+promptingmodule for fine-grained remote sensing classes,
+comparing simple templates with richer LLM-generated
+descriptions.
+• Section D details the selective prototype aggregation pro-
+cedure, including the RS-Flag rules, MAD-based robust
+pruning, and pseudo-code for constructing teacher text
+prototypes.
+• Section E describes the masking and renormalization strat-
+egy for the logit distillation loss Llogit in base-to-novel
+training.
+• Section F analyzes the parameter count, FLOPs overhead,
+runtime, and memory footprint of A VION on top of a
+frozen GeoRSCLIP backbone.
+• Section G presents a hyperparameter sensitivity analysis
+and our unified selection protocol shared across datasets
+and tasks.
+• Section H provides a qualitative analysis of RS-Flag,
+visualizing how the calibration down-weights RS-agnostic
+or ground-level descriptions to mitigate hallucinations.
+• Section I reports cross-dataset zero-shot transfer results to
+assess generalization and source-domain overfitting.
+• Section J ablates the choice of offline LLM generators for
+domain prompting, demonstrating that A VION is robust
+to the specific LLM used.
+• Section K extends the evaluation to broader general-
+domain benchmarks (ImageNet) to study scalability be-
+yond remote sensing.
+A. Additional Quantitative Results
+We first provide additional few-shot classification results
+on six remote sensing datasets. Fig. 7 shows the K-shot
+performance of A VION and competing methods under
+K∈ {1,2,4,8,16} acrossAID, EuroSAT, RESISC-45,
+UCMerced, WHU-RS19, and PatternNet. As K increases,
+all methods exhibit smooth performance gains, and A VION
+remains competitive or superior across datasets, with partic-
+ularly notable improvements on EuroSAT and UCMerced
+at higher shot counts. For completeness, Table 7 reports the
+per-dataset top-1 accuracies for each K. Overall, A VION
+performs on par with or better than strong prompt-learning
+and parameter-efficient adaptation baselines across diverse
+remote sensing scenes.
+We further complement these results with base-to-novel
+generalization experiments on the same six datasets. Table 8
+summarizes the detailed Base, Novel, and harmonic-mean
+(HM) performance for the ViT-B/32 student model, includ-
+ing the difference ∆ betweenOursand the strongest com-
+peting baseline for each metric. Fig. 8 provides a radar-chart
+view of the HM values across the six datasets, offering a
+compact comparison of overall base-to-novel generalization.
+A VION achieves the best HM on all six datasets, improv-
+ing upon the strongest baseline by +1.08 to +3.16 points
+while maintaining competitive Base and Novel accuracies.
+On some datasets (e.g., AID, EuroSAT), A VION trades a
+small decrease in Novel accuracy for a larger gain on Base
+and HM, while on the other datasets both Base and Novel
+improve.
+B. Symbols and Default Hyperparameters
+To facilitate clarity and reproducibility, Table 9 summarizes
+the symbols used throughout the paper, together with their
+definitions and the default values or hyperparameter search
+ranges adopted in our experiments. The table covers model
+components (encoders and prompts), loss-function terms
+(weights and temperatures), and data- or training-related
+parameters.
+C. Examples ofLLM-based Domain Prompting
+To provide a concrete illustration of ourLLM-based domain
+promptingmodule, this section presents example textual
+candidates generated for several fine-grained remote sensing
+classes.
+As described in Sec. 3.2, our goal is to mitigate theseman-
+tic povertyof simple templates (e.g., “a photo of [CLASS]”)
+commonly used in prior work. Instead of relying on a single
+generic template, we prompt an LLM to generate multiple
+candidates that are both semantically richer and explicitly
+aware of the remote sensing imagery domain. Following
+the query design illustrated in Fig. 3, we use the following
+generic prompt template for each class[CLASS]:
+“Generate N overhead-view descriptions of
+[CLASS] from satellite imagery, highlighting
+class-specific scene elements while avoiding any
+ground-level terms. ”
+This constraint encourages candidates that are appropriate
+1
+===== PAGE 12 =====
+(a) AID [32]
+ (b) EuroSAT [14]
+ (c) RESISC-45 [7]
+(d) UCMerced [33]
+ (e) WHU-RS19 [31]
+ (f) PatternNet [44]
+Figure 7. Few-shot classification performance (top-1 accuracy, %) across six remote sensing datasets (AID [32], EuroSAT [14], RESISC-
+45 [7], UCMerced [33], WHU-RS19 [31], and PatternNet [44]) for different numbers of shots K∈ {1,2,4,8,16} .
+for overhead perspectives and contain fine-grained, domain-
+specific details.
+Table 10 compares standard simple templates with the
+candidates produced by ourLLM-based domain prompting
+process. The richer descriptions provide a stronger semantic
+foundation for the teacher model’s prototypes, enabling our
+framework to better distinguish between challenging, fine-
+grained categories such as “industrial area” and “commercial
+area”.
+D. Details ofSelective Prototype Aggregation
+This section provides a detailed definition of our RS-Flag
+prior and a step-by-step pseudo-code for theselective proto-
+type aggregationprocess introduced in Sec. 3.2.
+RS-Flag rules.The RS-Flag indicator RS-Flagk,j ∈ {0,1}
+is set to 1 if a generated caption meets all of the following
+criteria, and0otherwise:
+1. Token constraints:The caption must contain at least one
+RS-positive token and no RS-negative tokens. We use
+the following case-insensitive, word-boundary–matched
+2
+===== PAGE 13 =====
+Table 7. Few-shot classification (top-1, %) on six remote sensing
+datasets. Winners arebold; runners-up are underlined .
+Dataset Method 1 2 4 8 16
+AID
+CoCoOp 74.91 83.23 85.90 90.53 93.28
+CoOp 77.22 82.09 85.67 89.77 92.79
+MMRL 76.30 80.35 87.23 91.28 92.89
+MaPLe 75.24 82.26 86.89 91.13 93.18
+PromptKD 74.85 80.72 86.41 90.67 92.95
+APPLeNet81.7983.24 87.11 91.24 93.20
+Ours 79.27 83.94 88.92 92.80 94.86
+EuroSAT
+CoCoOp 64.87 67.49 76.78 84.01 88.57
+CoOp 71.51 74.8081.2180.74 84.63
+MMRL 63.05 69.72 76.99 80.23 86.56
+MaPLe 62.95 64.89 65.84 80.80 86.83
+PromptKD 65.32 70.58 77.91 82.47 88.12
+APPLeNet71.9475.89 80.04 86.14 90.38
+Ours 66.29 76.36 80.21 88.69 91.14
+RESISC-45
+CoCoOp 68.06 78.40 82.78 84.62 87.94
+CoOp 65.18 75.12 76.24 78.46 83.66
+MMRL77.5381.08 83.19 85.83 87.60
+MaPLe 62.32 76.90 79.66 83.86 86.71
+PromptKD 70.14 77.92 81.37 84.28 86.95
+APPLeNet 75.79 79.94 82.79 85.18 88.15
+Ours 77.08 81.35 84.96 87.16 89.61
+UCMerced
+CoCoOp 82.07 85.40 90.58 92.12 94.18
+CoOp 74.18 82.80 86.14 90.85 92.22
+MMRL 82.9687.0489.47 91.80 94.07
+MaPLe 67.67 79.42 89.79 94.23 94.55
+PromptKD 79.52 84.61 89.88 93.17 94.82
+APPLeNet85.0885.82 90.69 92.28 94.39
+Ours 84.87 85.34 92.96 94.76 96.09
+WHU–RS19
+CoCoOp93.6093.60 95.81 97.68 97.90
+CoOp 87.64 92.72 93.82 97.35 98.01
+MMRL 93.49 94.37 95.92 96.5898.45
+MaPLe 88.85 88.52 95.5998.7998.01
+PromptKD 89.47 93.81 95.42 97.88 98.22
+APPLeNet 91.39 94.70 95.59 97.13 96.91
+Ours 92.05 95.03 96.80 98.56 98.34
+PatternNet
+CoCoOp 38.0975.2382.58 84.63 86.59
+CoOp 44.13 66.18 84.07 88.23 90.11
+MMRL 30.09 64.23 75.18 79.15 83.11
+MaPLe 36.57 68.14 77.11 81.19 85.12
+PromptKD 40.16 70.19 79.12 81.18 84.11
+APPLeNet 39.62 71.14 82.16 83.21 86.63
+Ours 46.07 69.11 86.03 89.14 92.09
+lists:
+• Positive: {overhead, aerial
+view, satellite imagery, nadir,
+orthorectified, multispectral, SAR}.
+• Negative: {street, indoor, selfie,
+portrait, close-up, ground level}.
+2. Length constraints:The caption length must be between
+6 and 20 words (whitespace-delimited).
+3. Content cues (optional):The caption may option-
+ally include class-specific cues (e.g., geometry- or
+infrastructure-related terms), which are captured implic-
+itly by the LLM and the RS-Flag token lists above.
+Figure 8. Base-to-novel generalization (HM, %) across six remote
+sensing datasets (ViT-B/32 student). The radar chart plots the
+harmonic mean between base and novel accuracies for A VION and
+competing baselines; a larger enclosed area indicates better overall
+base-to-novel performance.
+Input:teacher features {vT
+i }, caption embeddings {tk,j };
+hyperparameters(ζ s, β, γ, ε).
+For each classk:
+1) Bk ← {i|y i=k}; compute scores sk,j ←
+1
+|Bk|
+P
+i∈Bk
+(vT
+i )⊤tk,j.
+2) mk ←median({s k,j }j); ∆k,j ← |s k,j −m k|;
+MADk ←median({∆ k,j }j);
+zk,j ←∆ k,j /(MADk +ε).
+3)J k ← {j|z k,j ≤ζ s}// robust pruning of outlier
+captions
+4) Compute weights wk,j for j∈ J k using Eq. 3, where
+the RS-Flag prior is added as a calibration term to the
+similarity scores before softmax normalization.
+5)t T∗
+k ←
+P
+j∈Jk
+wk,j tk,j
+P
+j∈Jk
+wk,j tk,j
+
+2
+//ℓ 2-normalization
+Output:{t T∗
+k }C
+k=1.
+Selective prototype aggregation and robust pruning.The
+selective prototype aggregationalgorithm (shown in the box
+above) is performed offline during training. Its core steps
+involve scoring caption candidates (Step 1), performing ro-
+bust pruning (Steps 2-3), and then aggregating the remaining
+3
+===== PAGE 14 =====
+Table 8. Detailed base-to-novel results (%) on six remote sensing datasets (ViT-B/32 student). Baselines: GeoRSCLIP [41], CoOp [43],
+CoCoOp [42], MMRL [13], MaPLe [20], PromptKD [24], and APPLeNet [28]. We report Base, Novel, and HM; ∆ denotes the difference
+betweenOursand the best-performing baseline for each metric.
+AID [32] Base Novel HM
+GeoRSCLIP [41] 71.9676.9074.35
+CoOp [43] 95.53 66.41 78.35
+CoCoOp [42] 94.83 68.03 79.22
+MMRL [13] 95.27 70.40 80.97
+MaPLe [20] 95.10 70.60 81.04
+PromptKD [24] 94.90 70.00 80.57
+APPLeNet [28] 94.60 69.50 80.13
+Ours 95.8071.85 82.11
+∆+0.27 -5.05 +1.08
+(a) AID.
+RESISC-45 [7] Base Novel HM
+GeoRSCLIP [41] 85.76 81.17 83.40
+CoOp [43] 90.19 74.97 81.88
+CoCoOp [42] 92.97 74.97 83.01
+MMRL [13]94.1077.58 85.05
+MaPLe [20] 93.50 76.50 84.15
+PromptKD [24] 93.80 76.00 83.97
+APPLeNet [28] 93.00 75.00 83.04
+Ours93.90 83.17 88.21
+∆-0.20 +2.00 +3.16
+(b) RESISC-45.
+EuroSAT [14] Base Novel HM
+GeoRSCLIP [41] 80.6082.0081.29
+CoOp [43] 91.09 68.94 78.48
+CoCoOp [42] 92.61 73.25 81.80
+MMRL [13] 93.07 74.37 82.68
+MaPLe [20] 92.95 76.40 83.87
+PromptKD [24] 92.70 75.80 83.40
+APPLeNet [28] 92.20 74.10 82.17
+Ours 94.9077.1585.11
+∆+1.83 -4.85 +1.24
+(c) EuroSAT.
+WHU-RS19 [31] Base Novel HM
+GeoRSCLIP [41] 85.62 94.18 89.70
+CoOp [43] 93.08 88.54 90.75
+CoCoOp [42] 93.08 90.84 91.95
+MMRL [13] 93.92 90.14 91.99
+MaPLe [20] 93.60 91.80 92.69
+PromptKD [24] 93.40 90.90 92.13
+APPLeNet [28] 93.20 90.50 91.83
+Ours 96.85 94.45 95.63
+∆+2.93 +0.27 +2.94
+(d) WHU-RS19.
+UCMerced [33] Base Novel HM
+GeoRSCLIP [41] 87.2776.6781.63
+CoOp [43] 94.88 60.22 73.68
+CoCoOp [42] 93.69 63.11 75.42
+MMRL [13] 96.58 70.67 81.62
+MaPLe [20] 96.20 72.20 82.49
+PromptKD [24] 96.00 71.00 81.63
+APPLeNet [28] 95.80 71.20 81.69
+Ours 97.9075.21 85.07
+∆+1.32 -1.46 +2.58
+(e) UCMerced.
+PatternNet [44] Base Novel HM
+GeoRSCLIP [41] 57.38 67.59 62.48
+CoOp [43] 82.22 58.06 70.14
+CoCoOp [42] 83.94 53.95 68.94
+MMRL [13] 89.56 59.00 74.28
+MaPLe [20] 85.89 60.45 73.17
+PromptKD [24] 91.21 75.80 83.50
+APPLeNet [28] 94.22 74.20 84.21
+Ours 94.50 77.83 86.16
+∆+0.28 +2.03 +1.95
+(f) PatternNet.
+Table 9. Symbols and default/search ranges used in A VION. In all experiments we fixKp=30,β=10,γ=2,ζ s=3.0.
+Symbol Meaning Default / Search
+N# training images –
+C# classes –
+Dimage/text embedding dimension inherited from the VLM
+fT , gT teacher image/text encoders frozen
+fS, gS student image/text encoders backbones frozen
+vT
+i ℓ2-normalized teacher image feature forx i unitℓ 2-norm
+tT∗
+k teacher text prototype for classkunitℓ 2-norm
+vS
+i ℓ2-normalized student image feature forx i unitℓ 2-norm
+tS
+k student text feature for classkunitℓ 2-norm
+Kp # captions per class fromLLM-based domain prompting10–50
+β, γweighting inselective prototype aggregation(Eq. 3)β∈[5,20],γ∈ {0,2}
+ζs MAD-based pruning threshold (Eq. 9)2.5–3.5
+εnumerical stability constant (Eq. 9)10 −8
+τs, τt student/teacher logit scalesτ t via grid search;τ s learnable
+τtemperature ofL logit (Eq. 7)τ=2
+λimg, λtext, λlogit loss weights 0.5, 0.5, 1.0 (fixed; see Appx. G)
+P (v) # visual prompt tokens per layer4–16
+P (t) # text prompt tokens per layer2–8
+Lv, Lt # prompt-injected layers (vision/text) match ViT/Transformer depth
+4
+===== PAGE 15 =====
+Table 10. Examples of LLM-generated candidate descriptions from ourLLM-based domain promptingmodule, compared to standard simple
+templates. The generated candidates provide richer semantic and visual cues specific to remote sensing imagery.
+Class Name Simple Template LLM-Generated Candidates
+airport a photo of an airport - Overhead airport imagery reveals aprons (with parked aircraft at stands) adjacent to terminals,
+connected to the airfield via taxilanes and the taxiway system.
+- An aerial view of an airport showing multiple long, paved runways and taxiways.
+- Satellite imagery capturing a large airfield complex with terminal buildings and hangars.
+industrial areaa photo of an industrial area- A top-down view of an industrial zone characterized by large factory buildings and smokestacks.
+- Aerial imagery of a manufacturing plant complex with large warehouses and shipping depots.
+- A satellite photo showing a dense cluster of large-scale industrial structures and storage tanks.
+commercial areaa photo of a commercial area- An overhead view of a commercial district featuring multi-story office buildings and retail centers.
+- Nadir-view imagery of a dense downtown business area with high-rise buildings and streets.
+- An aerial photo of a shopping center or mall surrounded by a large, organized parking lot.
+forest a photo of a forest - A vast expanse of dense, green forest canopy as seen from a satellite.
+- An aerial view looking straight down at a dense woodland of coniferous or deciduous trees.
+- A top-down remote sensing image of a large, contiguous area covered by trees.
+candidates using the RS-Flag prior (Steps 4-5) to obtain the
+final teacher text prototype for each class.
+The robust z-score used in Step 2 is computed us-
+ing the median absolute deviation (MAD). Let mk =
+median({sk,j }j), ∆k,j =|s k,j −m k|, and MADk =
+median({∆k,j }j). Thez-score is defined as
+zk,j = ∆k,j
+MADk +ε , (9)
+which downweights or removes outlier captions whose
+scores deviate strongly from the median.
+E. Masking and Renormalization for Llogit in
+Base to Novel Training
+Let Ybase ⊂ Y denote the set of base classes and Ynovel =
+Y \Ybase the set of novel classes. During base-to-novel train-
+ing, we restrict the distillation distributions to base classes
+by masking scores for Ynovel and renormalizing over Ybase:
+˜q(T)
+i,k =
+
+
+
+exp
+ 
+s(T)
+i,k /τ
+
+P
+k′∈Ybase
+exp
+ 
+s(T)
+i,k′/τ
+ k∈ Y base,
+0k∈ Y novel ,
+(10)
+˜p(S)
+i,k =
+
+
+
+exp
+ 
+s(S)
+i,k /τ
+
+P
+k′∈Ybase
+exp
+ 
+s(S)
+i,k′/τ
+ k∈ Y base,
+0k∈ Y novel .
+(11)
+Here s(T)
+i,k and s(S)
+i,k are the teacher and student logits for
+image xi and class k, and τ is the distillation temperature
+used inL logit (Eq. 7). TheL logit term then becomes
+Llogit(xi) =τ 2 KL
+
+˜q(T)
+i,·
+ ˜p(S)
+i,·
+
+,
+which ensures that novel classes neither appear in the de-
+nominator nor contribute to the divergence during training.
+F. Complexity and Inference Overhead
+We quantify the additional parameters and computational
+overhead introduced by A VION on top of a frozen
+GeoRSCLIP backbone. Unless otherwise stated, all numbers
+below correspond to our default ViT-B/32 student with deep
+prompts in both encoders.
+Parameter count.For vision and text branches with
+widths Dv and Dt and Lv, Lt transformer layers that receive
+prompts, the total number of prompt parameters is
+#θprompts =L v P (v) Dv +L t P (t) Dt,
+where P (v) and P (t) denote the number of learnable prompt
+tokens per layer on the vision and text sides, respectively (see
+Tab. 9). In our main configuration (GeoRSCLIP ViT-B/32
+student), the vision encoder has Dv=768, Lv=12, P (v)=8,
+and the text encoder hasD t=512,L t=12,P (t)=4. Then
+12·8·768 + 12·4·512 = 98,304
+trainable prompt parameters, which is well below 1% of
+a ViT-B/32 backbone. All other backbone weights remain
+frozen; beyond these prompts, only a handful of scalar hy-
+perparameters (e.g., the learnable logit scale τs) are updated.
+FLOPs overhead (self-attention and MLP).Let N be the
+per-layer token count and P the number of prompt tokens
+added to that layer. The self-attention cost scales from N 2
+to(N+P) 2, so therelativeattention overhead is
+rattn ≈ (N+P) 2 −N 2
+N 2 = 2 P
+N +
+ P
+N
+2
+.
+The MLP cost scales approximately linearly with sequence
+length and therefore grows proportionally toP/N.
+Examples (our setup).For the vision branch, ViT-B/32
+at input resolution 2242 has Nv=49 patch tokens; with
+P (v)=8,
+r(v)
+attn ≈2· 8
+49 +
+  8
+49
+2
+≈35.3%,
+5
+===== PAGE 16 =====
+and the per-layer MLP overhead is ≈P (v)/Nv ≈16.3% .
+(We ignore the class token here for a rough estimate.) For
+the text branch, the CLIP text encoder uses Nt=77 tokens;
+withP (t)=4,
+r(t)
+attn ≈2· 4
+77 +
+  4
+77
+2
+≈10.7%,
+and the MLP overhead is ≈P (t)/Nt ≈5.2%. Because ViT-
+B/32 has shorter vision sequences than ViT-B/16, the same
+P yields a largerrelativeattention overhead; reducing P
+or using shallower prompting (smaller Lv, Lt) lowers this
+cost. In practice, these per-layer increases translate into a
+moderate end-to-end FLOPs and latency overhead compared
+to the frozen backbone.
+Runtime and memory.Table 11 reports the measured
+runtime of our ViT-B/32 student (frozen backbone + deep
+prompts). We report latency, throughput, and memory
+consumption over different batch sizes at 2242 resolution.
+Throughput is computed asbatch size / latency; exact num-
+bers may vary across hardware and software stacks. The
+teacher is used only during training, so it incurs zero cost at
+inference.
+Table 11. Runtime with ViT-B/32 student (frozen backbone + deep
+prompts). Teacher is train-time only and has zero inference cost.
+Throughput is computed as batch/latency; exact numbers may vary
+by hardware and software stack.
+Setting Batch Res. Lat. (ms) img/s Mem (MB)
+Student 64224 2 27.4 2334 1500
+Student 256224 2 109.7 2334 5800
+Teacher (train-time only) 642242 n/a n/a n/a
+G. Hyperparameter Sensitivity Analysis
+In this section, we provide a detailed justification of the
+hyperparameter choices used for our A VION framework,
+focusing on (i) our parameter selection protocol, (ii) the
+effect of loss weights (λ) and scheduling, and (iii) our choice
+of distillation temperature (τ).
+Parameter Selection Protocol and Fixed Settings.To en-
+sure robustness and avoid over-tuning, all hyperparameters
+were selectedonceon a validation split derived from theAID
+dataset’s base classes. These exact settings (e.g., learning
+rates, loss weights, warm-up schedule) were then frozen and
+applied to all six classification datasets and both retrieval
+datasets across all three experimental protocols (few-shot,
+base-to-novel, and retrieval). The strong performance across
+all tasks suggests the robustness of this single set of hyperpa-
+rameters. Furthermore, following prior work on logit-based
+distillation [24], we use a default distillation temperature of
+τ=2and do not tune it as part of our selection process.
+Analysis of Loss Weights and Scheduling.We conducted
+a detailed ablation study, summarized in Table 12, to val-
+idate our final loss weight configuration ( λimg/text=0.5,
+λlogit=1.0) and the 30% linear warm-up strategy on the
+Llogit term. The results lead to three key conclusions:
+Table 12. Ablation on loss weights (λ) and scheduling strategies.
+We report the average harmonic mean (HM, %) for base-to-novel
+generalization.
+Settingλ img λtext λlogit Avg. HM
+OnlyL logit 0 0 1.0 83.14
+All 1.0 (2-stage) 1.0 1.0 1.0 85.47
+All 1.0 (Warm-up) 1.0 1.0 1.0 86.91
+Ours (Warm-up) 0.5 0.5 1.0 87.05
+1. The tri-aspect alignment losses are critical and comple-
+mentary.Relying only on Llogit results in a significantly
+lower HM (83.14%), indicating that the representation
+alignment Limg and semantic alignment Ltext play a crit-
+ical role in achieving top performance.
+2. Our chosen weights (λimg/text=0.5) provide a better
+balance.Setting all three weights to 1.0 yields a strong
+86.91% HM, but it is slightly outperformed by our fi-
+nal configuration at 87.05% HM. Comparing “All 1.0
+(Warm-up)” and “Ours (Warm-up)” isolates the effect of
+λimg and λtext, suggesting that giving these embedding-
+level alignment terms a higher weight (1.0 vs. 0.5) can
+slightly over-regularize the student and hinder its optimal
+adaptation to the task.
+3. The 30% warm-up is the superior scheduling strat-
+egy.Comparing “All 1.0 (2-stage)” (85.47%) and “All 1.0
+(Warm-up)” (86.91%) isolates the impact of the schedul-
+ing policy. The smoother 30% warm-up schedule yields
+a clear HM improvement over the hard 2-stage scheme,
+and our final setting (“Ours (Warm-up)”) further reaches
+87.05%. This supports our choice of a warm-up strategy
+forL logit as a more stable and robust schedule.
+H. Qualitative Analysis of RS-Flag
+To empirically justify the reliability of the RS-Flag mecha-
+nism and demonstrate how it mitigates hallucinations, we use
+the “stadium” class as an example to visualize the normal-
+ized weights w obtained from Eq. (3), as shown in Figure 9.
+The candidates along the x-axis are ranked by their initial
+visual-textual similarity scores (blue bars).
+As highlighted by the dashed circles, several candidates—
+most notably the top-ranked ones (indices 1, 2, and 3)—are
+significantly suppressed after applying the RS-Flag calibra-
+tion (orange bars). This occurs because these candidates,
+despite having high initial visual alignment with the image,
+lack explicit remote sensing contextual features or contain
+ground-level negative words (i.e., RS-Flag=0). Taking in-
+dex 3 as an example, a description like “A massive concrete
+ring structure surrounding a rectangular green field.” is not
+6
+===== PAGE 17 =====
+inherently incorrect visually, but it lacks an explicit aerial
+perspective. Therefore, our mechanism does not directly
+eliminate it, but instead reduces its relative weight. This
+calibration allows candidates with stronger RS-awareness
+(e.g., indices 4, 5, 6, and 7), which receive a positive logit
+shift (RS-Flag=1), to correctly dominate the final aggregated
+prototype.
+Figure 9. Qualitative analysis of the RS-Flag mechanism using the
+“stadium” class. Candidates are ranked by their initial similarity
+(sk,j). The visualization compares the baseline softmax weights
+with our calibrated weights. Dashed circles highlight candidates
+(e.g., indices 1–3, 8–9, 11–12, 14, 26) that lack explicit remote
+sensing context and are consequently down-weighted to emphasize
+true RS-aware descriptions.
+I. Cross-dataset Evaluation
+To further validate the generalization capabilities of A VION
+and verify that it reduces source-domain overfitting, we con-
+duct a cross-dataset evaluation. We train A VION under a
+16-shot setting (using all classes) on the PatternNet dataset
+and report the zero-shot transfer performance on three tar-
+get datasets: RESISC-45, UCMerced, and AID (all classes).
+For fairness, we re-implement all evaluated methods on the
+identical GeoRSCLIP (ViT-B/32) backbone.
+As demonstrated in Table 13, A VION significantly outper-
+forms APPLeNet on the source domain (+5.46%) and con-
+sistently transfers better to unseen target domains: +2.88%
+on RESISC-45, +1.87% on UCMerced, and +1.59% on AID.
+Overall, A VION generalizes better across diverse remote
+sensing datasets, suggesting that our framework effectively
+mitigates the common issue of source-domain overfitting.
+Table 13. Cross-dataset evaluation (%). Models are trained on Pat-
+ternNet (16-shot) and evaluated zero-shot on targets. All methods
+utilize the GeoRSCLIP (ViT-B/32) backbone. ZS: Zero-shot.
+Method Source Target
+PatternNet RESISC-45 UCMerced AID
+GeoRSCLIP (ZS) 60.17 71.89 79.72 73.72
+APPLeNet 86.63 73.25 80.18 76.40
+A VION (Ours) 92.09 76.13 82.05 77.99
+J. Ablation on LLM Domain Prompting
+To ensure that the A VION framework is not overly sensitive
+to the specific large language model employed for domain
+prompting, we conduct an ablation study evaluating different
+offline LLM generators. Table 14 reports the average few-
+shot and base-to-novel generalization results across all six
+remote sensing datasets using text candidates generated by
+GPT-5, Llama-3.1-70B-Instruct, and our default Gemini 2.5
+Flash.
+The performance differences are marginal across all met-
+rics. This stability confirms that A VION’s performance gains
+stem fundamentally from the architectural design of the veri-
+fication and distillation mechanisms (e.g., RS-Flag and tri-
+aspect alignment), rather than relying on the idiosyncrasies
+of a specific language model.
+Table 14. Ablation on offline LLM choices. We report average
+few-shot accuracy and base-to-novel generalization (Base, Novel,
+HM) in % across six RS datasets. The framework remains stable
+regardless of the LLM generator used.
+Offline LLM Few-Shot Base-to-Novel
+4-shot 16-shot Base Novel HM
+GPT-588.4592.85 95.15 78.45 86.00
+Llama-3.1-70B-Inst. 87.12 93.6595.7279.55 86.89
+Gemini 2.5 Flash (Ours) 88.3193.6995.6479.94 87.05
+K. Comparisons on Broader Benchmarks
+While A VION is explicitly tailored to address the unique
+challenges of aerial and satellite imagery, we also explore its
+scalability and general applicability on the broader, general-
+domain ImageNet benchmark.
+For this experiment, we evaluate the base-to-novel gener-
+alization setting using a standard CLIP (ViT-B/16) student
+model. To adapt our pipeline to general-domain images,
+we modify the offline LLM generator query to a general
+template: “In one sentence, describe the distinctive appear-
+ance of [CLASS].” We generate 30 candidate descriptions
+per class using Gemini 2.5 Flash. Additionally, because
+ImageNet consists primarily of ground-level, human-centric
+photographs, we disable the RS-Flag filtering mechanism.
+Instead, the framework relies solely on the visual-textual
+similarity (Eq. (2)) and the MAD-based robust pruning for
+selective prototype aggregation.
+As shown in Table 15, our offline-teacher-to-student dis-
+tillation paradigm remains highly effective outside the re-
+mote sensing domain. When guided by a ViT-H/14 CLIP
+teacher, A VION outperforms the recent state-of-the-art gen-
+eral prompt tuning method MMRL in terms of the Harmonic
+Mean (HM). This suggests that the core mechanism of dis-
+tilling semantically rich, visually verified prototypes is a
+7
+===== PAGE 18 =====
+versatile approach that generalizes well beyond aerial con-
+texts.
+Table 15. Base-to-novel generalization (%) on the ImageNet bench-
+mark. The student model is CLIP (ViT-B/16). A VION demonstrates
+competitive transferability on general-domain images without the
+RS-Flag constraint.
+Method Base Novel HM
+MMRL 77.90 71.30 74.45
+A VION (Teacher: ViT-L/14) 77.27 74.02 75.63
+A VION (Teacher: ViT-H/14) 79.15 74.79 76.94
+8

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import pypdf; r = pypdf.PdfReader\\('D:/Academic/multimodel/AVION/AVION.pdf'\\); print\\('encrypted:', r.is_encrypted\\); print\\('pages:', len\\(r.pages\\)\\)\")",
+      "Bash(python -c \"from PyPDF2 import PdfReader; r = PdfReader\\('D:/Academic/multimodel/AVION/AVION.pdf'\\); print\\('encrypted:', r.is_encrypted\\)\")",
+      "Bash(pip install *)",
+      "Bash(python *)"
+    ]
+  }
+}

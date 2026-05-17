@@ -1,0 +1,15 @@
+# Cross-modal retrieval on RSITMD (frozen gallery protocol; 50 epochs).
+protocol: retrieval
+seed: 1
+
+data_root: data/RSITMD
+ckpt: runs/avion_retrieval_rsitmd/student.pt
+
+student:
+  backbone: ViT-B-32
+  pretrained: openai
+  pretrained_path: null
+  n_vision_prompts: 8
+  n_text_prompts: 4
+  vision_prompt_depth: 12
+  text_prompt_depth: 12

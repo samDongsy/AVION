@@ -1,0 +1,26 @@
+{
+  "airport": [
+    "An aerial view of an airport showing multiple long, paved runways and taxiways.",
+    "Overhead airport imagery reveals aprons with parked aircraft adjacent to terminals connected by taxilanes.",
+    "Satellite imagery capturing a large airfield complex with terminal buildings and hangars.",
+    "Nadir view of an international airport with concourses and the taxiway system."
+  ],
+  "industrial_area": [
+    "A top-down view of an industrial zone characterized by large factory buildings and smokestacks.",
+    "Aerial imagery of a manufacturing plant complex with large warehouses and shipping depots.",
+    "A satellite photo showing a dense cluster of large-scale industrial structures and storage tanks.",
+    "Overhead view of an industrial park with rectangular roofs and loading docks."
+  ],
+  "commercial_area": [
+    "An overhead view of a commercial district featuring multi-story office buildings and retail centers.",
+    "Nadir-view imagery of a dense downtown business area with high-rise buildings and streets.",
+    "An aerial photo of a shopping center or mall surrounded by a large, organized parking lot.",
+    "Satellite imagery of a commercial strip with adjoining parking lots and street access."
+  ],
+  "forest": [
+    "A vast expanse of dense, green forest canopy as seen from a satellite.",
+    "An aerial view looking straight down at a dense woodland of coniferous or deciduous trees.",
+    "A top-down remote sensing image of a large, contiguous area covered by trees.",
+    "Overhead nadir imagery of a continuous forest canopy with no visible roads or clearings."
+  ]
+}
